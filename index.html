@@ -276,7 +276,13 @@ textarea#exportJson{
 <div class="sheet" id="sheetReglages">
   <div class="sheet-handle"></div>
   <h2>Réglages</h2>
-  <p class="hint">Catégories utilisées pour classer les objets et chemins relevés.</p>
+
+  <p class="hint">🔒 Mode secret : affiche ou masque les catégories/objets/chemins marqués secrets, comme sur le logiciel bureau.</p>
+  <div class="sheet-actions">
+    <button class="btn btn-primary" id="btnModeSecret">Activer le mode secret</button>
+  </div>
+
+  <p class="hint" style="margin-top:18px;">Catégories utilisées pour classer les objets et chemins relevés.</p>
   <p class="hint" id="reglagesResume" style="font-weight:600; color:var(--ink);">—</p>
   <div class="sheet-actions">
     <button class="btn btn-primary" id="btnImporterCategories">Importer les catégories du logiciel bureau...</button>
@@ -337,18 +343,22 @@ textarea#exportJson{
     {nom:'Communication', icone:'📡', couleur:'#1976D2'},
     {nom:'Énergie', icone:'⚡', couleur:'#F9A825'},
     {nom:'Alimentation', icone:'🌾', couleur:'#689F38'},
-    {nom:'Refuge', icone:'⛺', couleur:'#6D4C41'},
+    {nom:'Refuge', icone:'⛺', couleur:'#6D4C41', secret:true},
     {nom:'Ressources logistiques', icone:'📦', couleur:'#757575'},
-    {nom:'Cachette', icone:'🕳️', couleur:'#212121'},
+    {nom:'Cachette', icone:'🕳️', couleur:'#212121', secret:true},
     {nom:'Transport', icone:'🚗', couleur:'#283593'},
     {nom:'Administration', icone:'🏛️', couleur:'#5E35B1'},
     {nom:'Divers', icone:'📌', couleur:'#9E9E9E'},
     {nom:'Eau', icone:'🚰', couleur:'#00ACC1'},
-    {nom:'Sécurité / Vigilance', icone:'🛡️', couleur:'#8D0000'},
+    {nom:'Sécurité / Vigilance', icone:'🛡️', couleur:'#8D0000', secret:true},
     {nom:'Zone de rassemblement', icone:'🚩', couleur:'#EF6C00'}
   ];
   var CATEGORIES_KEY = 'georeleve.categories.v1';
   var CATEGORIES = chargerCategoriesPersonnalisees() || DEFAULT_CATEGORIES.slice();
+
+  var SECRET_MODE_KEY = 'georeleve.modesecret.v1';
+  var modeSecret = false;
+  try { modeSecret = localStorage.getItem(SECRET_MODE_KEY) === '1'; } catch (e) { /* ignoré */ }
 
   function chargerCategoriesPersonnalisees(){
     try {
@@ -366,6 +376,8 @@ textarea#exportJson{
   }
   function emojiPour(nom){ var c = categorieParNom(nom); return c ? c.icone : '📍'; }
   function couleurPour(nom){ var c = categorieParNom(nom); return c ? c.couleur : '#E1560C'; }
+  function estSecrete(nom){ var c = categorieParNom(nom); return !!(c && c.secret); }
+  function categoriesVisibles(){ return CATEGORIES.filter(function(c){ return modeSecret || !c.secret; }); }
 
   // ---------- État & persistance ----------
   var STORAGE_KEY = 'georeleve.v1';
@@ -412,15 +424,18 @@ textarea#exportJson{
   var pointsLayer = L.layerGroup().addTo(map);
   var cheminsLayer = L.layerGroup().addTo(map);
 
+  function pointsAffichables(){ return state.points.filter(function(p){ return modeSecret || !estSecrete(p.categorie); }); }
+  function cheminsAffichables(){ return state.chemins.filter(function(c){ return modeSecret || !estSecrete(c.categorie); }); }
+
   function redessinerTout(){
     pointsLayer.clearLayers();
     cheminsLayer.clearLayers();
-    state.points.forEach(function(p){
+    pointsAffichables().forEach(function(p){
       L.marker([p.lat,p.lng], {icon:iconePoint(p.categorie)})
         .bindPopup('<b>'+escapeHtml(p.nom)+'</b><br>'+escapeHtml(p.categorie||'—'))
         .addTo(pointsLayer);
     });
-    state.chemins.forEach(function(c){
+    cheminsAffichables().forEach(function(c){
       var latlngs = c.points.map(function(pt){ return [pt.lat, pt.lng]; });
       L.polyline(latlngs, {color: couleurPour(c.categorie), weight:5, opacity:.85})
         .bindPopup('<b>'+escapeHtml(c.nom)+'</b><br>'+escapeHtml(c.categorie||'—')+' · '+c.points.length+' points')
@@ -431,7 +446,8 @@ textarea#exportJson{
   function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
 
   function majCompteur(){
-    document.getElementById('counterPill').textContent = state.points.length + ' point' + (state.points.length>1?'s':'') + ' · ' + state.chemins.length + ' chemin' + (state.chemins.length>1?'s':'');
+    var pts = pointsAffichables().length, ch = cheminsAffichables().length;
+    document.getElementById('counterPill').textContent = pts + ' point' + (pts>1?'s':'') + ' · ' + ch + ' chemin' + (ch>1?'s':'');
   }
 
   // ---------- Géolocalisation ----------
@@ -546,10 +562,10 @@ textarea#exportJson{
   // ---------- Chips de catégorie (réutilisé pour le formulaire Point et Chemin) ----------
   function peuplerChips(container, libreInputEl, onSelect){
     container.innerHTML = '';
-    CATEGORIES.forEach(function(c){
+    categoriesVisibles().forEach(function(c){
       var chip = document.createElement('button');
       chip.type = 'button'; chip.className = 'chip';
-      chip.textContent = c.icone + ' ' + c.nom;
+      chip.textContent = (c.secret ? '🔒 ' : '') + c.icone + ' ' + c.nom;
       chip.addEventListener('click', function(){
         var nouvelle = chip.classList.contains('selected') ? '' : c.nom;
         libreInputEl.value = '';
@@ -637,17 +653,18 @@ textarea#exportJson{
   document.getElementById('btnListe').addEventListener('click', function(){
     var el = document.getElementById('listeContenu');
     el.innerHTML = '';
-    if (state.points.length===0 && state.chemins.length===0) {
+    var pts = pointsAffichables(), chs = cheminsAffichables();
+    if (pts.length===0 && chs.length===0) {
       el.innerHTML = '<div class="empty-note">Aucun relevé pour l\'instant. Utilisez ＋ Point ou 〰️ Chemin sur la carte.</div>';
     }
-    state.points.forEach(function(p){
-      el.appendChild(ligneListe(emojiPour(p.categorie), p.nom, (p.categorie||'Sans catégorie') + ' · ' + p.lat.toFixed(5)+', '+p.lng.toFixed(5), function(){
+    pts.forEach(function(p){
+      el.appendChild(ligneListe((estSecrete(p.categorie)?'🔒 ':'')+emojiPour(p.categorie), p.nom, (p.categorie||'Sans catégorie') + ' · ' + p.lat.toFixed(5)+', '+p.lng.toFixed(5), function(){
         state.points = state.points.filter(function(x){ return x.id!==p.id; });
         sauvegarder(); redessinerTout(); document.getElementById('btnListe').click();
       }, function(){ map.setView([p.lat,p.lng], 17); fermerSheets(); }));
     });
-    state.chemins.forEach(function(c){
-      el.appendChild(ligneListe(emojiPour(c.categorie), c.nom, (c.categorie||'Sans catégorie') + ' · ' + c.points.length + ' points', function(){
+    chs.forEach(function(c){
+      el.appendChild(ligneListe((estSecrete(c.categorie)?'🔒 ':'')+emojiPour(c.categorie), c.nom, (c.categorie||'Sans catégorie') + ' · ' + c.points.length + ' points', function(){
         state.chemins = state.chemins.filter(function(x){ return x.id!==c.id; });
         sauvegarder(); redessinerTout(); document.getElementById('btnListe').click();
       }, function(){
@@ -679,8 +696,25 @@ textarea#exportJson{
       CATEGORIES.length + ' catégorie' + (CATEGORIES.length>1?'s':'') + (personnalisees ? ' (importées du logiciel bureau)' : ' (par défaut)');
   }
 
+  function majBoutonModeSecret(){
+    var btn = document.getElementById('btnModeSecret');
+    btn.textContent = modeSecret ? '🔒 Désactiver le mode secret' : 'Activer le mode secret';
+    btn.style.background = modeSecret ? '#B71C1C' : '';
+  }
+
+  document.getElementById('btnModeSecret').addEventListener('click', function(){
+    modeSecret = !modeSecret;
+    try { localStorage.setItem(SECRET_MODE_KEY, modeSecret ? '1' : '0'); } catch (e) { /* ignoré */ }
+    majBoutonModeSecret();
+    peuplerChips(pointChipsEl, document.getElementById('pointCategorieLibre'), function(v){ pointCategorieChoisie = v; });
+    peuplerChips(cheminChipsEl, document.getElementById('cheminCategorieLibre'), function(v){ cheminCategorieChoisie = v; });
+    redessinerTout();
+    toast(modeSecret ? 'Mode secret activé.' : 'Mode secret désactivé.');
+  });
+
   document.getElementById('btnReglages').addEventListener('click', function(){
     majResumeCategories();
+    majBoutonModeSecret();
     ouvrirSheet(document.getElementById('sheetReglages'));
   });
   document.getElementById('reglagesFermer').addEventListener('click', fermerSheets);
@@ -702,7 +736,7 @@ textarea#exportJson{
         if (!Array.isArray(liste) || liste.length === 0) throw new Error('vide');
 
         var nettoyees = liste.map(function(c){
-          return { nom: String(c.nom || '').trim(), icone: c.icone || '📍', couleur: c.couleur || '#E1560C' };
+          return { nom: String(c.nom || '').trim(), icone: c.icone || '📍', couleur: c.couleur || '#E1560C', secret: !!c.secret };
         }).filter(function(c){ return c.nom; });
         if (nettoyees.length === 0) throw new Error('aucune categorie valide');
 
@@ -738,8 +772,8 @@ textarea#exportJson{
       format: 'geopositionneur-releve-terrain',
       version: 1,
       genereLe: new Date().toISOString(),
-      points: state.points.map(function(p){ return {nom:p.nom, categorie:p.categorie, lat:p.lat, lng:p.lng, note:p.note, date:p.date}; }),
-      chemins: state.chemins.map(function(c){ return {nom:c.nom, categorie:c.categorie, note:c.note, date:c.date, points:c.points}; })
+      points: pointsAffichables().map(function(p){ return {nom:p.nom, categorie:p.categorie, lat:p.lat, lng:p.lng, note:p.note, date:p.date}; }),
+      chemins: cheminsAffichables().map(function(c){ return {nom:c.nom, categorie:c.categorie, note:c.note, date:c.date, points:c.points}; })
     };
   }
   document.getElementById('btnExport').addEventListener('click', function(){
