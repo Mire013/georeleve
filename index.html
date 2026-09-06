@@ -181,6 +181,7 @@ textarea#exportJson{
 <div class="topbar">
   <div class="brand"><span class="dot"></span>Géo-Relevé</div>
   <div class="counter-pill" id="counterPill">0 point · 0 chemin</div>
+  <button class="icon-btn" id="btnReglages" title="Réglages">⚙</button>
   <button class="icon-btn" id="btnListe" title="Liste">☰</button>
   <button class="icon-btn" id="btnExport" title="Exporter">⇪</button>
 </div>
@@ -269,6 +270,25 @@ textarea#exportJson{
   </div>
 </div>
 
+<!-- Réglages -->
+<div class="sheet" id="sheetReglages">
+  <div class="sheet-handle"></div>
+  <h2>Réglages</h2>
+  <p class="hint">Catégories utilisées pour classer les objets et chemins relevés.</p>
+  <p class="hint" id="reglagesResume" style="font-weight:600; color:var(--ink);">—</p>
+  <div class="sheet-actions">
+    <button class="btn btn-primary" id="btnImporterCategories">Importer les catégories du logiciel bureau...</button>
+  </div>
+  <p class="hint" style="margin-top:6px;">Dans Géo-Positionneur sur ton PC : menu Fichier &gt; Exporter les catégories pour l'app mobile, puis choisis ce fichier ici.</p>
+  <input type="file" id="inputCategories" accept="application/json,.json" style="display:none" />
+  <div class="sheet-actions" style="margin-top:14px;">
+    <button class="btn btn-ghost" id="btnReinitialiserCategories">Réinitialiser aux catégories par défaut</button>
+  </div>
+  <div class="sheet-actions" style="margin-top:18px;">
+    <button class="btn btn-ghost" id="reglagesFermer">Fermer</button>
+  </div>
+</div>
+
 <!-- Export -->
 <div class="sheet" id="sheetExport">
   <div class="sheet-handle"></div>
@@ -310,7 +330,7 @@ textarea#exportJson{
   if (typeof L === 'undefined') { return; }
   "use strict";
 
-  var CATEGORIES = [
+  var DEFAULT_CATEGORIES = [
     {nom:'Santé', icone:'🏥', couleur:'#D32F2F'},
     {nom:'Communication', icone:'📡', couleur:'#1976D2'},
     {nom:'Énergie', icone:'⚡', couleur:'#F9A825'},
@@ -325,6 +345,18 @@ textarea#exportJson{
     {nom:'Sécurité / Vigilance', icone:'🛡️', couleur:'#8D0000'},
     {nom:'Zone de rassemblement', icone:'🚩', couleur:'#EF6C00'}
   ];
+  var CATEGORIES_KEY = 'georeleve.categories.v1';
+  var CATEGORIES = chargerCategoriesPersonnalisees() || DEFAULT_CATEGORIES.slice();
+
+  function chargerCategoriesPersonnalisees(){
+    try {
+      var raw = localStorage.getItem(CATEGORIES_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      return (Array.isArray(parsed) && parsed.length > 0) ? parsed : null;
+    } catch (e) { return null; }
+  }
+
   function categorieParNom(nom){
     var n = (nom||'').trim().toLowerCase();
     for (var i=0;i<CATEGORIES.length;i++) if (CATEGORIES[i].nom.toLowerCase()===n) return CATEGORIES[i];
@@ -497,7 +529,7 @@ textarea#exportJson{
 
   // ---------- Sheets génériques ----------
   var scrim = document.getElementById('scrim');
-  var sheets = ['sheetPoint','sheetChemin','sheetListe','sheetExport'].map(function(id){ return document.getElementById(id); });
+  var sheets = ['sheetPoint','sheetChemin','sheetListe','sheetExport','sheetReglages'].map(function(id){ return document.getElementById(id); });
   function fermerSheets(){
     sheets.forEach(function(s){ s.classList.remove('open'); });
     scrim.classList.remove('open');
@@ -509,21 +541,28 @@ textarea#exportJson{
   }
   scrim.addEventListener('click', fermerSheets);
 
+  // ---------- Chips de catégorie (réutilisé pour le formulaire Point et Chemin) ----------
+  function peuplerChips(container, libreInputEl, onSelect){
+    container.innerHTML = '';
+    CATEGORIES.forEach(function(c){
+      var chip = document.createElement('button');
+      chip.type = 'button'; chip.className = 'chip';
+      chip.textContent = c.icone + ' ' + c.nom;
+      chip.addEventListener('click', function(){
+        var nouvelle = chip.classList.contains('selected') ? '' : c.nom;
+        libreInputEl.value = '';
+        Array.from(container.children).forEach(function(el2){ el2.classList.remove('selected'); });
+        if (nouvelle) chip.classList.add('selected');
+        onSelect(nouvelle);
+      });
+      container.appendChild(chip);
+    });
+  }
+
   // ---------- Formulaire Point ----------
   var pointChipsEl = document.getElementById('pointChips');
   var pointCategorieChoisie = '';
-  CATEGORIES.forEach(function(c){
-    var chip = document.createElement('button');
-    chip.type = 'button'; chip.className = 'chip';
-    chip.textContent = c.icone + ' ' + c.nom;
-    chip.addEventListener('click', function(){
-      pointCategorieChoisie = (pointCategorieChoisie===c.nom) ? '' : c.nom;
-      document.getElementById('pointCategorieLibre').value='';
-      Array.from(pointChipsEl.children).forEach(function(el2){ el2.classList.remove('selected'); });
-      if (pointCategorieChoisie) chip.classList.add('selected');
-    });
-    pointChipsEl.appendChild(chip);
-  });
+  peuplerChips(pointChipsEl, document.getElementById('pointCategorieLibre'), function(v){ pointCategorieChoisie = v; });
   document.getElementById('pointCategorieLibre').addEventListener('input', function(){
     pointCategorieChoisie = '';
     Array.from(pointChipsEl.children).forEach(function(el2){ el2.classList.remove('selected'); });
@@ -558,18 +597,7 @@ textarea#exportJson{
   // ---------- Formulaire Chemin ----------
   var cheminChipsEl = document.getElementById('cheminChips');
   var cheminCategorieChoisie = '';
-  CATEGORIES.forEach(function(c){
-    var chip = document.createElement('button');
-    chip.type = 'button'; chip.className = 'chip';
-    chip.textContent = c.icone + ' ' + c.nom;
-    chip.addEventListener('click', function(){
-      cheminCategorieChoisie = (cheminCategorieChoisie===c.nom) ? '' : c.nom;
-      document.getElementById('cheminCategorieLibre').value='';
-      Array.from(cheminChipsEl.children).forEach(function(el2){ el2.classList.remove('selected'); });
-      if (cheminCategorieChoisie) chip.classList.add('selected');
-    });
-    cheminChipsEl.appendChild(chip);
-  });
+  peuplerChips(cheminChipsEl, document.getElementById('cheminCategorieLibre'), function(v){ cheminCategorieChoisie = v; });
   document.getElementById('cheminCategorieLibre').addEventListener('input', function(){
     cheminCategorieChoisie = '';
     Array.from(cheminChipsEl.children).forEach(function(el2){ el2.classList.remove('selected'); });
@@ -641,6 +669,66 @@ textarea#exportJson{
     return row;
   }
   document.getElementById('listeFermer').addEventListener('click', fermerSheets);
+
+  // ---------- Réglages : import des catégories du logiciel bureau ----------
+  function majResumeCategories(){
+    var personnalisees = chargerCategoriesPersonnalisees() !== null;
+    document.getElementById('reglagesResume').textContent =
+      CATEGORIES.length + ' catégorie' + (CATEGORIES.length>1?'s':'') + (personnalisees ? ' (importées du logiciel bureau)' : ' (par défaut)');
+  }
+
+  document.getElementById('btnReglages').addEventListener('click', function(){
+    majResumeCategories();
+    ouvrirSheet(document.getElementById('sheetReglages'));
+  });
+  document.getElementById('reglagesFermer').addEventListener('click', fermerSheets);
+
+  document.getElementById('btnImporterCategories').addEventListener('click', function(){
+    document.getElementById('inputCategories').click();
+  });
+
+  document.getElementById('inputCategories').addEventListener('change', function(e){
+    var fichier = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!fichier) return;
+
+    var lecteur = new FileReader();
+    lecteur.onload = function(){
+      try {
+        var data = JSON.parse(lecteur.result);
+        var liste = Array.isArray(data) ? data : data.categories;
+        if (!Array.isArray(liste) || liste.length === 0) throw new Error('vide');
+
+        var nettoyees = liste.map(function(c){
+          return { nom: String(c.nom || '').trim(), icone: c.icone || '📍', couleur: c.couleur || '#E1560C' };
+        }).filter(function(c){ return c.nom; });
+        if (nettoyees.length === 0) throw new Error('aucune categorie valide');
+
+        CATEGORIES = nettoyees;
+        localStorage.setItem(CATEGORIES_KEY, JSON.stringify(CATEGORIES));
+
+        peuplerChips(pointChipsEl, document.getElementById('pointCategorieLibre'), function(v){ pointCategorieChoisie = v; });
+        peuplerChips(cheminChipsEl, document.getElementById('cheminCategorieLibre'), function(v){ cheminCategorieChoisie = v; });
+        redessinerTout();
+        majResumeCategories();
+        toast(CATEGORIES.length + ' catégories importées.');
+      } catch (err) {
+        toast('Fichier de catégories invalide.');
+      }
+    };
+    lecteur.readAsText(fichier);
+  });
+
+  document.getElementById('btnReinitialiserCategories').addEventListener('click', function(){
+    CATEGORIES = DEFAULT_CATEGORIES.slice();
+    try { localStorage.removeItem(CATEGORIES_KEY); } catch (e) { /* ignoré */ }
+
+    peuplerChips(pointChipsEl, document.getElementById('pointCategorieLibre'), function(v){ pointCategorieChoisie = v; });
+    peuplerChips(cheminChipsEl, document.getElementById('cheminCategorieLibre'), function(v){ cheminCategorieChoisie = v; });
+    redessinerTout();
+    majResumeCategories();
+    toast('Catégories par défaut restaurées.');
+  });
 
   // ---------- Export ----------
   function construireExport(){
