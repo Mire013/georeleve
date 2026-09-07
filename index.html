@@ -430,7 +430,8 @@ textarea#exportJson{
 
   function pointsAffichables(){ return state.points.filter(function(p){ return modeSecret || !estSecrete(p.categorie); }); }
   function cheminsAffichables(){ return state.chemins.filter(function(c){ return modeSecret || !estSecrete(c.categorie); }); }
-  function referenceAffichable(liste){ return liste.filter(function(x){ return modeSecret || !estSecrete(x.categorie); }); }
+  function referenceEstSecrete(x){ return (typeof x.secret === 'boolean') ? x.secret : estSecrete(x.categorie); }
+  function referenceAffichable(liste){ return liste.filter(function(x){ return modeSecret || !referenceEstSecrete(x); }); }
 
   // ---------- Référence (contenu envoyé depuis le logiciel bureau, lecture seule) ----------
   var REFERENCE_KEY = 'georeleve.reference.v1';
@@ -715,12 +716,12 @@ textarea#exportJson{
       titreRef.textContent = 'Référence (bureau)';
       el.appendChild(titreRef);
       refObjets.forEach(function(o){
-        el.appendChild(ligneListeRef((estSecrete(o.categorie)?'🔒 ':'')+emojiPour(o.categorie), o.nom, o.categorie||'Sans catégorie', function(){
+        el.appendChild(ligneListeRef((referenceEstSecrete(o)?'🔒 ':'')+emojiPour(o.categorie), o.nom, o.categorie||'Sans catégorie', function(){
           map.setView([o.lat,o.lng], 17); fermerSheets();
         }));
       });
       refChemins.forEach(function(c){
-        el.appendChild(ligneListeRef((estSecrete(c.categorie)?'🔒 ':'')+emojiPour(c.categorie), c.nom, (c.categorie||'Sans catégorie') + ' · ' + c.points.length + ' points', function(){
+        el.appendChild(ligneListeRef((referenceEstSecrete(c)?'🔒 ':'')+emojiPour(c.categorie), c.nom, (c.categorie||'Sans catégorie') + ' · ' + c.points.length + ' points', function(){
           var latlngs = c.points.map(function(pt){ return [pt.lat,pt.lng]; });
           map.fitBounds(L.polyline(latlngs).getBounds().pad(0.2)); fermerSheets();
         }));
