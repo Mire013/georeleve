@@ -292,6 +292,9 @@ textarea#exportJson{
   <div class="sheet-actions" style="margin-top:14px;">
     <button class="btn btn-ghost" id="btnReinitialiserCategories">Réinitialiser aux catégories par défaut</button>
   </div>
+  <div class="sheet-actions" style="margin-top:10px;">
+    <button class="btn btn-ghost" id="btnViderReference" style="display:none;">Vider les données de référence</button>
+  </div>
   <div class="sheet-actions" style="margin-top:18px;">
     <button class="btn btn-ghost" id="reglagesFermer">Fermer</button>
   </div>
@@ -423,13 +426,30 @@ textarea#exportJson{
 
   var pointsLayer = L.layerGroup().addTo(map);
   var cheminsLayer = L.layerGroup().addTo(map);
+  var referenceLayer = L.layerGroup().addTo(map);
 
   function pointsAffichables(){ return state.points.filter(function(p){ return modeSecret || !estSecrete(p.categorie); }); }
   function cheminsAffichables(){ return state.chemins.filter(function(c){ return modeSecret || !estSecrete(c.categorie); }); }
+  function referenceAffichable(liste){ return liste.filter(function(x){ return modeSecret || !estSecrete(x.categorie); }); }
+
+  // ---------- Référence (contenu envoyé depuis le logiciel bureau, lecture seule) ----------
+  var REFERENCE_KEY = 'georeleve.reference.v1';
+  var referenceData = { objets: [], chemins: [] };
+  (function chargerReference(){
+    try {
+      var raw = localStorage.getItem(REFERENCE_KEY);
+      if (raw) {
+        var p = JSON.parse(raw);
+        if (p && Array.isArray(p.objets) && Array.isArray(p.chemins)) referenceData = p;
+      }
+    } catch (e) { /* ignoré */ }
+  })();
+  function sauvegarderReference(){ try { localStorage.setItem(REFERENCE_KEY, JSON.stringify(referenceData)); } catch (e) { /* ignoré */ } }
 
   function redessinerTout(){
     pointsLayer.clearLayers();
     cheminsLayer.clearLayers();
+    referenceLayer.clearLayers();
     pointsAffichables().forEach(function(p){
       L.marker([p.lat,p.lng], {icon:iconePoint(p.categorie)})
         .bindPopup('<b>'+escapeHtml(p.nom)+'</b><br>'+escapeHtml(p.categorie||'—'))
@@ -440,6 +460,21 @@ textarea#exportJson{
       L.polyline(latlngs, {color: couleurPour(c.categorie), weight:5, opacity:.85})
         .bindPopup('<b>'+escapeHtml(c.nom)+'</b><br>'+escapeHtml(c.categorie||'—')+' · '+c.points.length+' points')
         .addTo(cheminsLayer);
+    });
+    referenceAffichable(referenceData.objets).forEach(function(o){
+      var icon = L.divIcon({
+        html: '<div style="font-size:22px;line-height:22px;opacity:.55;filter:grayscale(35%);text-shadow:0 0 3px #fff,0 0 3px #fff;">' + emojiPour(o.categorie) + '</div>',
+        className: '', iconSize:[26,26], iconAnchor:[13,13], popupAnchor:[0,-13]
+      });
+      L.marker([o.lat,o.lng], {icon: icon})
+        .bindPopup('<b>'+escapeHtml(o.nom)+'</b><br>'+escapeHtml(o.categorie||'—')+'<br><i>Référence (bureau)</i>')
+        .addTo(referenceLayer);
+    });
+    referenceAffichable(referenceData.chemins).forEach(function(c){
+      var latlngs = c.points.map(function(pt){ return [pt.lat, pt.lng]; });
+      L.polyline(latlngs, {color: couleurPour(c.categorie), weight:4, opacity:.4, dashArray:'4 6'})
+        .bindPopup('<b>'+escapeHtml(c.nom)+'</b><br>'+escapeHtml(c.categorie||'—')+'<br><i>Référence (bureau)</i>')
+        .addTo(referenceLayer);
     });
     majCompteur();
   }
@@ -672,8 +707,39 @@ textarea#exportJson{
         map.fitBounds(L.polyline(latlngs).getBounds().pad(0.2)); fermerSheets();
       }));
     });
+
+    var refObjets = referenceAffichable(referenceData.objets), refChemins = referenceAffichable(referenceData.chemins);
+    if (refObjets.length > 0 || refChemins.length > 0) {
+      var titreRef = document.createElement('div');
+      titreRef.style.cssText = 'font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:14px 0 4px;';
+      titreRef.textContent = 'Référence (bureau)';
+      el.appendChild(titreRef);
+      refObjets.forEach(function(o){
+        el.appendChild(ligneListeRef((estSecrete(o.categorie)?'🔒 ':'')+emojiPour(o.categorie), o.nom, o.categorie||'Sans catégorie', function(){
+          map.setView([o.lat,o.lng], 17); fermerSheets();
+        }));
+      });
+      refChemins.forEach(function(c){
+        el.appendChild(ligneListeRef((estSecrete(c.categorie)?'🔒 ':'')+emojiPour(c.categorie), c.nom, (c.categorie||'Sans catégorie') + ' · ' + c.points.length + ' points', function(){
+          var latlngs = c.points.map(function(pt){ return [pt.lat,pt.lng]; });
+          map.fitBounds(L.polyline(latlngs).getBounds().pad(0.2)); fermerSheets();
+        }));
+      });
+    }
+
     ouvrirSheet(document.getElementById('sheetListe'));
   });
+  function ligneListeRef(emoji, nom, sous, onTap){
+    var row = document.createElement('div'); row.className='list-row';
+    var e = document.createElement('div'); e.className='emoji'; e.textContent=emoji; e.style.opacity='.6';
+    var info = document.createElement('div'); info.className='info';
+    var nm = document.createElement('div'); nm.className='nm'; nm.textContent=nom;
+    var sub = document.createElement('div'); sub.className='sub'; sub.textContent=sous;
+    info.appendChild(nm); info.appendChild(sub);
+    row.appendChild(e); row.appendChild(info);
+    row.addEventListener('click', onTap);
+    return row;
+  }
   function ligneListe(emoji, nom, sous, onDelete, onTap){
     var row = document.createElement('div'); row.className='list-row';
     var e = document.createElement('div'); e.className='emoji'; e.textContent=emoji;
@@ -692,8 +758,11 @@ textarea#exportJson{
   // ---------- Réglages : import des catégories du logiciel bureau ----------
   function majResumeCategories(){
     var personnalisees = chargerCategoriesPersonnalisees() !== null;
+    var nbRef = referenceData.objets.length + referenceData.chemins.length;
+    var texteRef = nbRef > 0 ? ' · ' + referenceData.objets.length + ' objet(s) et ' + referenceData.chemins.length + ' chemin(s) de référence' : '';
     document.getElementById('reglagesResume').textContent =
-      CATEGORIES.length + ' catégorie' + (CATEGORIES.length>1?'s':'') + (personnalisees ? ' (importées du logiciel bureau)' : ' (par défaut)');
+      CATEGORIES.length + ' catégorie' + (CATEGORIES.length>1?'s':'') + (personnalisees ? ' (importées du logiciel bureau)' : ' (par défaut)') + texteRef;
+    document.getElementById('btnViderReference').style.display = nbRef > 0 ? '' : 'none';
   }
 
   function majBoutonModeSecret(){
@@ -743,11 +812,21 @@ textarea#exportJson{
         CATEGORIES = nettoyees;
         localStorage.setItem(CATEGORIES_KEY, JSON.stringify(CATEGORIES));
 
+        var texteContenu = '';
+        if (Array.isArray(data.objetsReference) || Array.isArray(data.cheminsReference)) {
+          referenceData = {
+            objets: Array.isArray(data.objetsReference) ? data.objetsReference : [],
+            chemins: Array.isArray(data.cheminsReference) ? data.cheminsReference : []
+          };
+          sauvegarderReference();
+          texteContenu = ' (+ ' + referenceData.objets.length + ' objet(s) et ' + referenceData.chemins.length + ' chemin(s) de référence)';
+        }
+
         peuplerChips(pointChipsEl, document.getElementById('pointCategorieLibre'), function(v){ pointCategorieChoisie = v; });
         peuplerChips(cheminChipsEl, document.getElementById('cheminCategorieLibre'), function(v){ cheminCategorieChoisie = v; });
         redessinerTout();
         majResumeCategories();
-        toast(CATEGORIES.length + ' catégories importées.');
+        toast(CATEGORIES.length + ' catégories importées' + texteContenu + '.');
       } catch (err) {
         toast('Fichier de catégories invalide.');
       }
@@ -764,6 +843,14 @@ textarea#exportJson{
     redessinerTout();
     majResumeCategories();
     toast('Catégories par défaut restaurées.');
+  });
+
+  document.getElementById('btnViderReference').addEventListener('click', function(){
+    referenceData = { objets: [], chemins: [] };
+    try { localStorage.removeItem(REFERENCE_KEY); } catch (e) { /* ignoré */ }
+    redessinerTout();
+    majResumeCategories();
+    toast('Données de référence effacées.');
   });
 
   // ---------- Export ----------
