@@ -981,19 +981,24 @@ textarea#exportJson{
   // Catégorie choisie à l'étape 1 (nom de la catégorie, ou chaîne vide si aucune).
   var rapideCategorieChoisie = '';
 
-  // Récupère une position le plus vite possible : réutilise la dernière position connue si elle
-  // date de moins de 15 secondes, sinon relance une localisation fraîche (avec un délai court).
+  // Récupère systématiquement la position au moment précis du clic : jamais une position mise
+  // en cache par le navigateur ("maximumAge:0"), pour ne jamais signaler un point à un endroit
+  // qu'on a déjà quitté.
   function obtenirPositionRapide(){
     return new Promise(function(resolve, reject){
-      // Réutilise la dernière position déjà connue (évite d'attendre le GPS si on vient de se localiser).
-      if (dernierePosition) { resolve(dernierePosition); return; }
-      // Pas de position récente en mémoire : demande une localisation fraîche au téléphone.
+      // Sans capteur GPS disponible, impossible de continuer.
       if (!navigator.geolocation) { reject(new Error('Géolocalisation indisponible.')); return; }
+      // "maximumAge:0" force le téléphone à redemander une position fraîche à chaque appel,
+      // plutôt que de renvoyer une ancienne position déjà connue du système.
       navigator.geolocation.getCurrentPosition(function(pos){
-        resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        // Coordonnées fraîchement capturées à l'instant du clic.
+        var ll = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        // Met aussi à jour la position globale de l'app (utilisée par le marqueur "Ma position").
+        dernierePosition = ll;
+        resolve(ll);
       }, function(err){
         reject(err);
-      }, { enableHighAccuracy:true, timeout:6000, maximumAge:15000 });
+      }, { enableHighAccuracy:true, timeout:8000, maximumAge:0 });
     });
   }
 
